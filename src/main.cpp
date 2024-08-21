@@ -17,7 +17,7 @@ static constexpr int SPACEMOUSE_PIN_BUTTON2 = 15;
 static constexpr int SPACEMOUSE_PIN_LED1 = 28;
 static constexpr int SPACEMOUSE_PIN_LED2 = 29;
 
-static constexpr unsigned long LED_FADING_INACTIVITY_TIME = 1000 * 250;
+static constexpr unsigned long LED_FADING_INACTIVITY_TIME = 1000 * 590;
 static constexpr unsigned long MAX_INACTIVITY_TIME = LED_FADING_INACTIVITY_TIME + ( 1000 * 10 );
 
 static constexpr float PWM_FREQ = 1000;
