@@ -95,6 +95,10 @@ float xOffset = 0, yOffset = 0, zOffset = 0;
 float xCurrent = 0, yCurrent = 0, zCurrent = 0;
 float rxCurrent = 0, ryCurrent = 0, rzCurrent = 0;
 
+bool isOrbit = false;
+bool isOrbit_defaultstate = false;
+bool button1Held = false;
+
 void magnetometerSetup();
 void setLeds( float dutyCycle );
 void setButton( uint8_t bit, bool on );
@@ -118,12 +122,66 @@ void setup()
     magnetometerSetup();
     setLeds( 100 );
 
-    button1.attachClick( [] { setButton( 0, true ); } );
-    button2.attachClick( [] { setButton( 1, true ); } );
-    button1.attachLongPressStart( [] { setButton( 2, true ); } );
-    button2.attachLongPressStart( [] { setButton( 3, true ); } );
-    button1.attachIdle( [] { setButton( 0, false ); setButton( 2, false ); } );
-    button2.attachIdle( [] { setButton( 1, false ); setButton( 3, false ); } );
+    // button1 controls isOrbit and its default state:
+    //   - Click: sets isOrbit to the opposite of isOrbit_defaultstate, sets button1Held to true
+    //   - Double Click: toggles isOrbit_defaultstate
+    //   - Idle: resets isOrbit to isOrbit_defaultstate, sets button1Held to false
+    // button2 controls setButton based on button1Held:
+    //   - Click: setButton(2, true) if button1Held, else setButton(0, true)
+    //   - LongPressStart: setButton(3, true) if button1Held, else setButton(1, true)
+    //   - Idle: resets all button bits (0, 1, 2, 3) to false
+
+
+    button1.attachClick( [] {
+        isOrbit = !isOrbit_defaultstate;
+    } );
+
+    button1.attachDoubleClick( [] {
+        isOrbit_defaultstate = !isOrbit_defaultstate;
+    } );
+
+    button1.attachLongPressStart( [] {
+        isOrbit = !isOrbit_defaultstate;
+        button1Held = true;
+    } );
+
+    button1.attachLongPressStop( [] {
+        isOrbit = isOrbit_defaultstate;
+        button1Held = false;
+    } );
+
+    button1.attachIdle( [] {
+        isOrbit = isOrbit_defaultstate;
+        button1Held = false;
+    } );
+
+    button2.attachClick( [] {
+        if (button1Held)
+            setButton( 2, true );
+        else
+            setButton( 0, true );
+    } );
+
+    button2.attachLongPressStart( [] {
+        if (button1Held)
+            setButton( 3, true );
+        else
+            setButton( 1, true );
+    } );
+
+    button2.attachIdle( [] {
+        setButton( 0, false );
+        setButton( 1, false );
+        setButton( 2, false );
+        setButton( 3, false );
+    } );
+
+    button1.setClickMs( 100 );
+    button1.setPressMs( 250 );
+    button1.setIdleMs( 100 );
+    button2.setClickMs( 100 );
+    button2.setPressMs( 250 );
+    button2.setIdleMs( 100 );
 
     ledTimeline.mode( Tween::Mode::REPEAT_TL );
 
@@ -182,7 +240,7 @@ void magnetometerSetup()
 
 void readMagnetometer()
 {
-    static bool isOrbit = false;
+    // static bool isOrbit = false;
     float absZ;
 
     mag.updateData();
@@ -211,13 +269,13 @@ void readMagnetometer()
     Serial.print( "  " );
     Serial.println( isOrbit );
 */
-    if( isOrbit ) {
+    // if( isOrbit ) {
 
-        if( !xCurrent && !yCurrent && ( !absZ || ( zCurrent > 0 ) || ( absZ > MAGNETOMETER_Z_ORBIT_MAX_THRESHOLD )))
-            isOrbit = false;
+    //     if( !xCurrent && !yCurrent && ( !absZ || ( zCurrent > 0 ) || ( absZ > MAGNETOMETER_Z_ORBIT_MAX_THRESHOLD )))
+    //         isOrbit = false;
 
-    } else if( !xCurrent && !yCurrent )
-        isOrbit = absZ && ( zCurrent < 0 ) && ( absZ <= MAGNETOMETER_Z_ORBIT_MAX_THRESHOLD );
+    // } else if( !xCurrent && !yCurrent )
+    //     isOrbit = absZ && ( zCurrent < 0 ) && ( absZ <= MAGNETOMETER_Z_ORBIT_MAX_THRESHOLD );
 
     if( isOrbit ) {
         
@@ -238,8 +296,8 @@ void readMagnetometer()
             xCurrent = 0;
             yCurrent = 0;
 
-            if( zCurrent < 0 )
-                zCurrent += MAGNETOMETER_Z_ORBIT_MAX_THRESHOLD;
+            // if( zCurrent < 0 )
+            //     zCurrent += MAGNETOMETER_Z_ORBIT_MAX_THRESHOLD;
         }
     }
 }
