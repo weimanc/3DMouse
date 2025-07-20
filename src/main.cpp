@@ -5,6 +5,7 @@
 #include <Tlv493d.h>
 #include <SimpleKalmanFilter.h>
 #include <Adafruit_TinyUSB.h>
+#include <Adafruit_NeoPixel.h>
 #include <RP2040_PWM.h>
 #include <Tween.h>
 #include <pico/sleep.h>
@@ -16,6 +17,7 @@ static constexpr int SPACEMOUSE_PIN_BUTTON2 = 15;
 [[maybe_unused]] static constexpr int SPACEMOUSE_PIN_SCL = 27;
 static constexpr int SPACEMOUSE_PIN_LED1 = 28;
 static constexpr int SPACEMOUSE_PIN_LED2 = 29;
+static constexpr int SPACEMOUSE_PIN_RGB = 16; // Added for WS2812
 
 static constexpr unsigned long LED_FADING_INACTIVITY_TIME = 1000 * 590;
 static constexpr unsigned long MAX_INACTIVITY_TIME = LED_FADING_INACTIVITY_TIME + ( 1000 * 10 );
@@ -86,6 +88,7 @@ OneButton button1( SPACEMOUSE_PIN_BUTTON1 );
 OneButton button2( SPACEMOUSE_PIN_BUTTON2 );
 RP2040_PWM led1Pwm( SPACEMOUSE_PIN_LED1, PWM_FREQ, 0, false );
 RP2040_PWM led2Pwm( SPACEMOUSE_PIN_LED2, PWM_FREQ, 0, false );
+Adafruit_NeoPixel rgbLed(1, SPACEMOUSE_PIN_RGB, NEO_GRB + NEO_KHZ800); // 1 LED
 Adafruit_USBD_HID usb_hid;
 Tween::Timeline ledTimeline;
 float nextLedLevel = 0;
@@ -115,6 +118,9 @@ void setup()
     usb_hid.setReportDescriptor( desc_hid_report, sizeof( desc_hid_report ));
     usb_hid.setStringDescriptor( "SpaceMouse Pro Wireless (cabled)" );
     usb_hid.begin();
+
+    rgbLed.begin();
+    rgbLed.show(); // Initialize LED to off
 
     while( !TinyUSBDevice.mounted() )
         delay( 1 );
@@ -193,10 +199,20 @@ void setup()
         .hold( 500 );
 }
 
+void setRgbLed(float dutyCycle)
+{
+    // Map dutyCycle (0-100) to brightness (0-255)
+    uint8_t brightness = static_cast<uint8_t>(dutyCycle * 2.55f);
+    // Example: white color, you can change to any color
+    rgbLed.setPixelColor(0, rgbLed.Color(brightness, brightness, brightness));
+    rgbLed.show();
+}
+
 void setLeds( float dutyCycle )
 {
     led1Pwm.setPWM( led1Pwm.getPin(), PWM_FREQ, dutyCycle );
     led2Pwm.setPWM( led2Pwm.getPin(), PWM_FREQ, dutyCycle );
+    setRgbLed(dutyCycle); // Mirror behaviour for RGB LED
 }
 
 void setButton( uint8_t bit, bool on )
