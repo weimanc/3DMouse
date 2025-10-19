@@ -209,13 +209,13 @@ void setup()
         .hold( 500 );
 }
 
-void setRgbLed(float xCurrent, float yCurrent, float zCurrent, float rxCurrent, float ryCurrent, bool isOrbit)
+void setRgbLed(float xCurrent, float yCurrent, float zCurrent, float rxCurrent, float ryCurrent, float rzCurrent, bool isOrbit)
 {
     if (isOrbit) {
         uint8_t brightnessRX = static_cast<uint8_t>(min(255,abs(map(static_cast<long>(rxCurrent * MAGNETOMETER_SENSITIVITY), -MAGNETOMETER_INPUT_RANGE, MAGNETOMETER_INPUT_RANGE, -100, 100)) * 2.55f / 2));
         uint8_t brightnessRY = static_cast<uint8_t>(min(255,abs(map(static_cast<long>(ryCurrent * MAGNETOMETER_SENSITIVITY), -MAGNETOMETER_INPUT_RANGE, MAGNETOMETER_INPUT_RANGE, -100, 100)) * 2.55f / 2));
-        // uint8_t brightnessRZ = static_cast<uint8_t>(abs(map(static_cast<long>(zCurrent * MAGNETOMETER_SENSITIVITY), -MAGNETOMETER_INPUT_Z_RANGE, MAGNETOMETER_INPUT_Z_RANGE, -100, 100)) * 2.55f);
-        uint8_t brightnessRZ = 0;
+        uint8_t brightnessRZ = static_cast<uint8_t>(min(255,abs(map(static_cast<long>(rzCurrent * MAGNETOMETER_SENSITIVITY), -MAGNETOMETER_INPUT_Z_RANGE, MAGNETOMETER_INPUT_Z_RANGE, -100, 100)) * 2.55f / 2));
+        // uint8_t brightnessRZ = 0;
 
         rgbLed.setPixelColor(0, rgbLed.Color(brightnessRY + brightnessRZ, brightnessRX + brightnessRZ, brightnessRX + brightnessRY));
         rgbLed.setPixelColor(1, rgbLed.Color(brightnessRY + brightnessRZ, brightnessRX + brightnessRZ, brightnessRX + brightnessRY));
@@ -364,6 +364,11 @@ void readMagnetometer()
         
         ryCurrent = xCurrent;
         rxCurrent = yCurrent;
+        if( absZ ) {
+            rxCurrent = 0;
+            ryCurrent = 0;
+            rzCurrent = zCurrent;
+        }
         xCurrent = 0;
         yCurrent = 0;
         zCurrent = 0;
@@ -383,7 +388,7 @@ void readMagnetometer()
             //     zCurrent += MAGNETOMETER_Z_ORBIT_MAX_THRESHOLD;
         }
     }
-    setRgbLed( xCurrent, yCurrent, zCurrent, rxCurrent, ryCurrent, isOrbit );
+    setRgbLed( xCurrent, yCurrent, zCurrent, rxCurrent, ryCurrent, rzCurrent, isOrbit );
 }
 
 void sendHidReports()
