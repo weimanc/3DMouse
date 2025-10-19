@@ -11,13 +11,13 @@
 #include <pico/sleep.h>
 #include <hardware/rosc.h>
 
-static constexpr int SPACEMOUSE_PIN_BUTTON1 = 14;
-static constexpr int SPACEMOUSE_PIN_BUTTON2 = 15;
+static constexpr int SPACEMOUSE_PIN_BUTTON1 = 15;
+static constexpr int SPACEMOUSE_PIN_BUTTON2 = 14;
 [[maybe_unused]] static constexpr int SPACEMOUSE_PIN_SDA = 26;
 [[maybe_unused]] static constexpr int SPACEMOUSE_PIN_SCL = 27;
 static constexpr int SPACEMOUSE_PIN_LED1 = 28;
 static constexpr int SPACEMOUSE_PIN_LED2 = 29;
-static constexpr int SPACEMOUSE_PIN_RGB = 16; // Added for WS2812
+static constexpr int SPACEMOUSE_PIN_RGB = 13; // Changed to a unique pin for WS2812
 
 static constexpr unsigned long LED_FADING_INACTIVITY_TIME = 1000 * 590;
 static constexpr unsigned long MAX_INACTIVITY_TIME = LED_FADING_INACTIVITY_TIME + ( 1000 * 10 );
@@ -88,7 +88,8 @@ OneButton button1( SPACEMOUSE_PIN_BUTTON1 );
 OneButton button2( SPACEMOUSE_PIN_BUTTON2 );
 RP2040_PWM led1Pwm( SPACEMOUSE_PIN_LED1, PWM_FREQ, 0, false );
 RP2040_PWM led2Pwm( SPACEMOUSE_PIN_LED2, PWM_FREQ, 0, false );
-Adafruit_NeoPixel rgbLed(1, SPACEMOUSE_PIN_RGB, NEO_GRB + NEO_KHZ800); // 1 LED
+Adafruit_NeoPixel rgbLed(3, SPACEMOUSE_PIN_RGB, NEO_GRB + NEO_KHZ800); // 1 LED
+// Adafruit_NeoPixel rgbLed(1, SPACEMOUSE_PIN_RGB, NEO_GRB + NEO_KHZ800);
 Adafruit_USBD_HID usb_hid;
 Tween::Timeline ledTimeline;
 float nextLedLevel = 0;
@@ -101,6 +102,15 @@ float rxCurrent = 0, ryCurrent = 0, rzCurrent = 0;
 bool isOrbit = false;
 bool isOrbit_defaultstate = false;
 bool button1Held = false;
+
+enum Axis {
+    x,
+    y,
+    z,
+    rx,
+    ry,
+    rz
+};
 
 void magnetometerSetup();
 void setLeds( float dutyCycle );
@@ -199,12 +209,65 @@ void setup()
         .hold( 500 );
 }
 
-void setRgbLed(float dutyCycle)
+void setRgbLed(float xCurrent, float yCurrent, float zCurrent, float rxCurrent, float ryCurrent, bool isOrbit)
 {
-    // Map dutyCycle (0-100) to brightness (0-255)
-    uint8_t brightness = static_cast<uint8_t>(dutyCycle * 2.55f);
-    // Example: white color, you can change to any color
-    rgbLed.setPixelColor(0, rgbLed.Color(brightness, brightness, brightness));
+    if (isOrbit) {
+        uint8_t brightnessRX = static_cast<uint8_t>(min(255,abs(map(static_cast<long>(rxCurrent * MAGNETOMETER_SENSITIVITY), -MAGNETOMETER_INPUT_RANGE, MAGNETOMETER_INPUT_RANGE, -100, 100)) * 2.55f / 2));
+        uint8_t brightnessRY = static_cast<uint8_t>(min(255,abs(map(static_cast<long>(ryCurrent * MAGNETOMETER_SENSITIVITY), -MAGNETOMETER_INPUT_RANGE, MAGNETOMETER_INPUT_RANGE, -100, 100)) * 2.55f / 2));
+        // uint8_t brightnessRZ = static_cast<uint8_t>(abs(map(static_cast<long>(zCurrent * MAGNETOMETER_SENSITIVITY), -MAGNETOMETER_INPUT_Z_RANGE, MAGNETOMETER_INPUT_Z_RANGE, -100, 100)) * 2.55f);
+        uint8_t brightnessRZ = 0;
+
+        rgbLed.setPixelColor(0, rgbLed.Color(brightnessRY + brightnessRZ, brightnessRX + brightnessRZ, brightnessRX + brightnessRY));
+        rgbLed.setPixelColor(1, rgbLed.Color(brightnessRY + brightnessRZ, brightnessRX + brightnessRZ, brightnessRX + brightnessRY));
+        rgbLed.setPixelColor(2, rgbLed.Color(brightnessRY + brightnessRZ, brightnessRX + brightnessRZ, brightnessRX + brightnessRY));
+
+    } else {
+        uint8_t brightnessX = static_cast<uint8_t>(min(255,abs(map(static_cast<long>(xCurrent * MAGNETOMETER_SENSITIVITY), -MAGNETOMETER_INPUT_RANGE, MAGNETOMETER_INPUT_RANGE, -100, 100)) * 2.55f));
+        uint8_t brightnessY = static_cast<uint8_t>(min(255,abs(map(static_cast<long>(yCurrent * MAGNETOMETER_SENSITIVITY), -MAGNETOMETER_INPUT_RANGE, MAGNETOMETER_INPUT_RANGE, -100, 100)) * 2.55f));
+        uint8_t brightnessZ = static_cast<uint8_t>(min(255,abs(map(static_cast<long>(zCurrent * MAGNETOMETER_SENSITIVITY), -MAGNETOMETER_INPUT_Z_RANGE, MAGNETOMETER_INPUT_Z_RANGE, -100, 100)) * 2.55f));
+        
+        rgbLed.setPixelColor(0, rgbLed.Color(brightnessX, brightnessY, brightnessZ));
+        rgbLed.setPixelColor(1, rgbLed.Color(brightnessX, brightnessY, brightnessZ));
+        rgbLed.setPixelColor(2, rgbLed.Color(brightnessX, brightnessY, brightnessZ));
+    }
+    rgbLed.show();
+}
+
+void setRgbLedXYZ(float xCurrent, float yCurrent, float zCurrent, bool isOrbit)
+{
+    float dutyCycleX = abs( map( static_cast<long>( xCurrent * MAGNETOMETER_SENSITIVITY ), -MAGNETOMETER_INPUT_RANGE, MAGNETOMETER_INPUT_RANGE, -100, 100 ));
+    float dutyCycleY = abs( map( static_cast<long>( yCurrent * MAGNETOMETER_SENSITIVITY ), -MAGNETOMETER_INPUT_RANGE, MAGNETOMETER_INPUT_RANGE, -100, 100 ));
+    float dutyCycle = abs( map( static_cast<long>( zCurrent * MAGNETOMETER_SENSITIVITY ), -MAGNETOMETER_INPUT_Z_RANGE, MAGNETOMETER_INPUT_Z_RANGE, -100, 100 ));
+    
+    uint8_t brightnessX = static_cast<uint8_t>(dutyCycleX * 2.55f);
+    uint8_t brightnessY = static_cast<uint8_t>(dutyCycleY * 2.55f);
+    uint8_t brightnessZ = static_cast<uint8_t>(dutyCycle * 2.55f);
+    
+    if (isOrbit) {
+        brightnessX  = brightnessX/2;
+        brightnessY  = brightnessY/2;
+        brightnessZ  = brightnessZ/2;
+
+        // uint8_t brightnessRX = static_cast<uint8_t>(brightnessX + brightnessZ);
+        // uint8_t brightnessRY = static_cast<uint8_t>(brightnessY + brightnessX);
+        // uint8_t brightnessRZ = static_cast<uint8_t>(brightnessY + brightnessZ);
+        uint8_t brightnessRX = static_cast<uint8_t>(brightnessX + brightnessZ);
+        uint8_t brightnessRY = static_cast<uint8_t>(brightnessY + brightnessZ);
+        uint8_t brightnessRZ = static_cast<uint8_t>(brightnessY + brightnessX);
+
+        // mix the colors
+        // rgbLed.setPixelColor(0, rgbLed.Color(brightnessX + brightnessZ, brightnessY + brightnessX, brightnessY + brightnessZ));
+        // rgbLed.setPixelColor(1, rgbLed.Color(brightnessX + brightnessZ, brightnessY + brightnessX, brightnessY + brightnessZ));
+        // rgbLed.setPixelColor(2, rgbLed.Color(brightnessX + brightnessZ, brightnessY + brightnessX, brightnessY + brightnessZ));
+
+        rgbLed.setPixelColor(0, rgbLed.Color(brightnessRX, brightnessRY, brightnessRZ)); // Red + Green
+        rgbLed.setPixelColor(1, rgbLed.Color(brightnessRX, brightnessRY, brightnessRZ)); // Red + Green
+        rgbLed.setPixelColor(2, rgbLed.Color(brightnessRX, brightnessRY, brightnessRZ)); // Red + Green
+    } else {
+        rgbLed.setPixelColor(0, rgbLed.Color(brightnessX, brightnessY, brightnessZ)); // Red + Green
+        rgbLed.setPixelColor(1, rgbLed.Color(brightnessX, brightnessY, brightnessZ)); // Red + Green
+        rgbLed.setPixelColor(2, rgbLed.Color(brightnessX, brightnessY, brightnessZ)); // Red + Green
+    }
     rgbLed.show();
 }
 
@@ -212,7 +275,7 @@ void setLeds( float dutyCycle )
 {
     led1Pwm.setPWM( led1Pwm.getPin(), PWM_FREQ, dutyCycle );
     led2Pwm.setPWM( led2Pwm.getPin(), PWM_FREQ, dutyCycle );
-    setRgbLed(dutyCycle); // Mirror behaviour for RGB LED
+    // setRgbLed(dutyCycle); // Mirror behaviour for RGB LED
 }
 
 void setButton( uint8_t bit, bool on )
@@ -293,6 +356,10 @@ void readMagnetometer()
     // } else if( !xCurrent && !yCurrent )
     //     isOrbit = absZ && ( zCurrent < 0 ) && ( absZ <= MAGNETOMETER_Z_ORBIT_MAX_THRESHOLD );
 
+    
+
+    // setRgbLedXYZ( xCurrent, yCurrent, zCurrent, isOrbit );
+
     if( isOrbit ) {
         
         ryCurrent = xCurrent;
@@ -316,6 +383,7 @@ void readMagnetometer()
             //     zCurrent += MAGNETOMETER_Z_ORBIT_MAX_THRESHOLD;
         }
     }
+    setRgbLed( xCurrent, yCurrent, zCurrent, rxCurrent, ryCurrent, isOrbit );
 }
 
 void sendHidReports()
