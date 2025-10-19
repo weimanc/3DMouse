@@ -24,9 +24,10 @@ static constexpr unsigned long MAX_INACTIVITY_TIME = LED_FADING_INACTIVITY_TIME 
 
 static constexpr float PWM_FREQ = 1000;
 
-static constexpr int MAGNETOMETER_SENSITIVITY = 10;
-static constexpr int MAGNETOMETER_INPUT_RANGE = 2.5 * MAGNETOMETER_SENSITIVITY;
-static constexpr int MAGNETOMETER_INPUT_Z_RANGE = MAGNETOMETER_INPUT_RANGE * 8;
+static constexpr int MAGNETOMETER_SENSITIVITY = 100;
+static constexpr int MAGNETOMETER_INPUT_RANGE_t = 2.5 * MAGNETOMETER_SENSITIVITY;
+static constexpr int MAGNETOMETER_INPUT_Z_RANGE = MAGNETOMETER_INPUT_RANGE_t * 8;
+static constexpr int MAGNETOMETER_INPUT_RANGE = MAGNETOMETER_INPUT_Z_RANGE; // same scaling for all axes
 static constexpr float MAGNETOMETER_XY_THRESHOLD = 0.4;
 static constexpr float MAGNETOMETER_Z_THRESHOLD = 0.9;
 static constexpr float MAGNETOMETER_Z_ORBIT_MAX_THRESHOLD = 1.7;
@@ -324,21 +325,31 @@ void readMagnetometer()
 
     mag.updateData();
 
+    // local helper: compensate deadzone so dynamic range is preserved
+    auto compensateThreshold = [](float value, float threshold, float axisMax) -> float {
+        float absV = fabsf(value);
+        if (absV <= threshold) return 0.0f;
+        if (axisMax <= threshold) return value; // defensive fallback
+        // remap [threshold .. axisMax] -> [0 .. axisMax]
+        float scaled = (absV - threshold) / (axisMax - threshold) * axisMax;
+        return (value < 0.0f) ? -scaled : scaled;
+    };
+
+    // estimated sensor values (same as before)
     xCurrent = xFilter.updateEstimate( mag.getX() - xOffset );
     yCurrent = yFilter.updateEstimate( mag.getY() - yOffset );
     zCurrent = zFilter.updateEstimate( mag.getZ() - zOffset );
-    absZ = abs( zCurrent );
 
-    if( abs( xCurrent ) < MAGNETOMETER_XY_THRESHOLD )
-        xCurrent = 0;
+    // compute axis maxima in the same units as xCurrent/yCurrent/zCurrent
+    float maxXY = MAGNETOMETER_INPUT_RANGE / static_cast<float>(MAGNETOMETER_SENSITIVITY);
+    float maxZ  = MAGNETOMETER_INPUT_Z_RANGE / static_cast<float>(MAGNETOMETER_SENSITIVITY);
 
-    if( abs( yCurrent ) < MAGNETOMETER_XY_THRESHOLD )
-        yCurrent = 0;
+    // apply deadzone compensation instead of hard-clipping to zero
+    xCurrent = compensateThreshold(xCurrent, MAGNETOMETER_XY_THRESHOLD, maxXY);
+    yCurrent = compensateThreshold(yCurrent, MAGNETOMETER_XY_THRESHOLD, maxXY);
+    zCurrent = compensateThreshold(zCurrent, MAGNETOMETER_Z_THRESHOLD, maxZ);
 
-    if( absZ < MAGNETOMETER_Z_THRESHOLD ) {
-        zCurrent = 0;
-        absZ = 0;
-    }
+    absZ = fabsf( zCurrent );
 /*
     Serial.print( xCurrent );
     Serial.print( " " );
