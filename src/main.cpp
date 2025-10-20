@@ -103,6 +103,20 @@ float rxCurrent = 0, ryCurrent = 0, rzCurrent = 0;
 bool isOrbit = false;
 bool isOrbit_defaultstate = false;
 bool button1Held = false;
+// when switching between XY-mode and Z-mode, require values to pass through zero
+// to avoid abrupt jumps. When a desired mode change is detected we enter a
+// transient state (isTransitioning) and wait until sensor outputs are all
+// zero (after deadzone compensation) before committing the mode change.
+// Magnetometer axis mode state machine (orthogonal to isOrbit)
+enum MagnetoState {
+    MAG_IDLE,
+    MAG_XY_MODE,
+    MAG_Z_MODE
+};
+
+// current magnetometer mode and zero-cross flag
+static MagnetoState magState = MAG_IDLE;
+static bool magZeroCrossed = true; // true when sensor has passed through zero (all axes == 0)
 
 enum Axis {
     x,
@@ -320,8 +334,8 @@ void magnetometerSetup()
 
 void readMagnetometer()
 {
-    // static bool isOrbit = false;
     float absZ;
+    float zCurrent_pre;
 
     mag.updateData();
 
@@ -331,14 +345,15 @@ void readMagnetometer()
         if (absV <= threshold) return 0.0f;
         if (axisMax <= threshold) return value; // defensive fallback
         // remap [threshold .. axisMax] -> [0 .. axisMax]
-        float scaled = (absV - threshold) / (axisMax - threshold) * axisMax;
+        // float scaled = (absV - threshold) / (axisMax - threshold) * axisMax;
+        float scaled = (absV - threshold);
         return (value < 0.0f) ? -scaled : scaled;
     };
 
     // estimated sensor values (same as before)
     xCurrent = xFilter.updateEstimate( mag.getX() - xOffset );
     yCurrent = yFilter.updateEstimate( mag.getY() - yOffset );
-    zCurrent = zFilter.updateEstimate( mag.getZ() - zOffset );
+    zCurrent_pre = zFilter.updateEstimate( mag.getZ() - zOffset );
 
     // compute axis maxima in the same units as xCurrent/yCurrent/zCurrent
     float maxXY = MAGNETOMETER_INPUT_RANGE / static_cast<float>(MAGNETOMETER_SENSITIVITY);
@@ -347,9 +362,9 @@ void readMagnetometer()
     // apply deadzone compensation instead of hard-clipping to zero
     xCurrent = compensateThreshold(xCurrent, MAGNETOMETER_XY_THRESHOLD, maxXY);
     yCurrent = compensateThreshold(yCurrent, MAGNETOMETER_XY_THRESHOLD, maxXY);
-    zCurrent = compensateThreshold(zCurrent, MAGNETOMETER_Z_THRESHOLD, maxZ);
+    zCurrent = compensateThreshold(zCurrent_pre, MAGNETOMETER_Z_THRESHOLD, maxZ);
+    absZ = fabsf( zCurrent_pre );
 
-    absZ = fabsf( zCurrent );
 /*
     Serial.print( xCurrent );
     Serial.print( " " );
@@ -359,46 +374,97 @@ void readMagnetometer()
     Serial.print( "  " );
     Serial.println( isOrbit );
 */
-    // if( isOrbit ) {
 
-    //     if( !xCurrent && !yCurrent && ( !absZ || ( zCurrent > 0 ) || ( absZ > MAGNETOMETER_Z_ORBIT_MAX_THRESHOLD )))
-    //         isOrbit = false;
+    // -----------------------------
+    // Magnetometer mode state machine
+    // - MAG_IDLE: no sustained mode selected (default)
+    // - MAG_XY_MODE: use x/y as translation axes
+    // - MAG_Z_MODE: use z as translation axis
+    // Transition rules:
+    // - State transitions between XY and Z only allowed when sensor values pass through zero
+    // - isOrbit remains orthogonal (separate)
+    // -----------------------------
 
-    // } else if( !xCurrent && !yCurrent )
-    //     isOrbit = absZ && ( zCurrent < 0 ) && ( absZ <= MAGNETOMETER_Z_ORBIT_MAX_THRESHOLD );
+    // Determine whether current sensor reads are effectively zero
+    bool xyZero = (xCurrent == 0.0f && yCurrent == 0.0f);
+    bool zZero = (zCurrent == 0.0f);
 
-    
+    // Update zero-cross flag when all axes are zero
+    if (xyZero && zZero) {
+        magZeroCrossed = true;
+    }
 
-    // setRgbLedXYZ( xCurrent, yCurrent, zCurrent, isOrbit );
+    // Decide desired mode from the current readings (priority: XY if x/y active, otherwise Z)
+    MagnetoState desiredState = MAG_IDLE;
+    if (!xyZero) desiredState = MAG_XY_MODE;
+    else if (!zZero) desiredState = MAG_Z_MODE;
 
-    if( isOrbit ) {
-        
+    // Only allow switching between XY and Z modes if we've seen a zero crossing
+    if (magState != desiredState) {
+        if (magState == MAG_IDLE) {
+            // from idle, adopt the desired state
+            magState = desiredState;
+            magZeroCrossed = false;
+        } else if (magZeroCrossed) {
+            // allow transition after zero cross
+            magState = desiredState;
+            magZeroCrossed = false;
+        } else {
+            // keep previous state until zero crossing
+            desiredState = magState;
+        }
+    }
+    switch (magState) {
+        case MAG_IDLE:
+            // do nothing
+            break;
+        case MAG_XY_MODE:
+            // clamp zCurrent to zero
+            zCurrent = 0.0f;
+            absZ = 0.0f;
+            break;
+        case MAG_Z_MODE:
+            // zero x/y
+            xCurrent = 0.0f;
+            yCurrent = 0.0f;
+            break;
+    }
+
+    // Route outputs according to the active mode and isOrbit
+    if (isOrbit) {
+        // orbit maps to rotations
         ryCurrent = xCurrent;
         rxCurrent = yCurrent;
-        if( absZ ) {
+        if (absZ) {
             rxCurrent = 0;
             ryCurrent = 0;
             rzCurrent = zCurrent;
+        } else {
+            rzCurrent = 0;
         }
         xCurrent = 0;
         yCurrent = 0;
         zCurrent = 0;
-
     } else {
-        
+        // translation mapping depends on magState
         rxCurrent = 0;
         ryCurrent = 0;
         rzCurrent = 0;
 
-        if( absZ ) {
-
+        if (magState == MAG_XY_MODE) {
+            // use x/y; clamp z
+            if (absZ) zCurrent = 0;
+        } else if (magState == MAG_Z_MODE) {
+            // use z; zero x/y
             xCurrent = 0;
             yCurrent = 0;
-
-            // if( zCurrent < 0 )
-            //     zCurrent += MAGNETOMETER_Z_ORBIT_MAX_THRESHOLD;
+        } else { // MAG_IDLE
+            xCurrent = 0;
+            yCurrent = 0;
+            zCurrent = 0;
         }
     }
+
     setRgbLed( xCurrent, yCurrent, zCurrent, rxCurrent, ryCurrent, rzCurrent, isOrbit );
 }
 
